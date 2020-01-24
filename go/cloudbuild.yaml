@@ -1,0 +1,40 @@
+steps:
+  - name: docker.io/moby/buildkit:master
+    id: buildkit
+    volumes:
+      - name: 'oci-image'
+        path: '/tmp'
+    entrypoint: 'sh'
+    env:
+      - '_GOLANG_VERSION=1.13'
+      - '_DELVE_VERSION=1.3.2'
+    args:
+    - '-c'
+    - |
+      /usr/bin/buildctl-daemonless.sh build \
+        --frontend=dockerfile.v0 \
+        --opt=build-arg:GOLANG_VERSION=$$_GOLANG_VERSION \
+        --opt=build-arg:DELVE_VERSION=$$_DELVE_VERSION \
+        --opt=filename=Dockerfile \
+        --local=context=. --local=dockerfile=. \
+        --opt=target=duct-tape-go \
+        --output type=docker,name=gcr.io/$PROJECT_ID/duct-tape/go:$$_DELVE_VERSION > /tmp/duct-tape-go.tar
+
+  - name: docker.io/docker:19.03
+    id: docker
+    volumes:
+      - name: 'oci-image'
+        path: '/tmp'
+    waitFor:
+    - buildkit
+    entrypoint: 'sh'
+    args:
+    - '-c'
+    - |
+      cat /tmp/duct-tape-go.tar | docker image load && \
+      _TAG=$(docker image ls --filter=reference=gcr.io/$PROJECT_ID/duct-tape/go --format='{{.Tag}}') && \
+      docker image push gcr.io/$PROJECT_ID/duct-tape/go:$$_TAG && \
+      docker image tag gcr.io/$PROJECT_ID/duct-tape/go:$$_TAG gcr.io/$PROJECT_ID/duct-tape/go:latest
+
+images:
+  - gcr.io/$PROJECT_ID/duct-tape/go:latest
